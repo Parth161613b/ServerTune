@@ -1,0 +1,792 @@
+# ServerTune 1.0.0 - default configuration
+# Paper 26.2, Java 25. See docs/CONFIGURATION.md for the full reference.
+#
+# ============================================================================
+# WHAT THIS FILE DOES ON A FRESH INSTALL
+# ============================================================================
+# Monitoring is on. Anything that changes gameplay is off, except item and XP
+# handling, which is described below. Nothing here needs editing to run safely.
+#
+# ON  - health monitoring, alerts, the performance guard (reports only),
+#       diagnostics, recommendations, self-monitoring
+# ON  - item, XP and projectile modules (see the gameplay note below)
+# OFF - entity, chunk, hopper and redstone modules; all four change gameplay
+# OFF - performance-guard automatic-optimization; the guard reports and acts
+#       on nothing except suspending its own work in FALLBACK
+#
+# GAMEPLAY NOTE for the three enabled modules. They are on because their cost
+# is low and their effect is close to vanilla, but they are not inert:
+#   item      - merges nearby stacks, and removes the OLDEST items in a chunk
+#               past 100 per chunk. Named items are never touched.
+#   xp        - merges nearby orbs, caps at 50 per chunk
+#   projectile- removes arrows and tridents still alive after 60s
+# Set optimization.modules.<name>.enabled to false for pure monitoring.
+#
+# Thresholds appear at several different values on purpose. Alerting fires
+# early (MSPT 40/50), state changes and diagnoses use the TPS-equivalent
+# ladder (MSPT 55/70). 50ms IS one tick, so judging server state against the
+# alerting numbers would report a healthy 20 TPS server as degraded.
+# ============================================================================
+
+general:
+  # Debug logging. Adds per-cycle detail from each module to the console.
+  # Leave off in production; it logs on every optimization cycle.
+  #
+  # There is no general.enabled switch. A plugin-level "enabled: false" that still loaded the
+  # jar, registered the commands and ran the scheduler would be a setting that does nothing,
+  # so it is not offered - stop the plugin the way you stop any other, by removing the jar.
+  # To make this plugin cost nothing without removing it, set performance-guard.enabled,
+  # diagnostics.enabled and every optimization.modules.*.enabled to false.
+  debug: false
+
+# Performance monitoring configuration
+performance:
+  # Performance profile: light, balanced, aggressive, custom
+  profile: balanced
+
+  # Custom intervals (in ticks, 20 ticks = 1 second)
+  # Only applies when profile is set to 'custom'
+  #
+  # Entity and chunk tracking are not listed here on purpose: both are event-driven
+  # (spawn/remove and load/unload handlers), so they have no polling interval to tune.
+  intervals:
+    # Health monitoring interval
+    health: 100  # 5 seconds
+
+    # Deep analysis interval (hotspots, diagnostics)
+    deep-analysis: 1200  # 60 seconds
+
+    # Individual optimization module intervals.
+    # These apply whatever the profile is - the profile sets health and deep-analysis only.
+    modules:
+      item-merge: 200  # 10 seconds; also used by the XP module
+      entity-cleanup: 400  # 20 seconds; also used by the projectile module
+      chunk-unload: 600  # 30 seconds
+      hopper: 400  # 20 seconds
+      redstone: 400  # 20 seconds
+
+# Alert system configuration
+alerts:
+  enabled: true
+
+  # Send alerts to console
+  console: true
+
+  # Cooldown between alerts (seconds). Applies to every alert type.
+  cooldown-seconds: 60
+
+  # TPS alerts
+  tps:
+    enabled: true
+
+    # Warning threshold
+    warning:
+      threshold: 18.0
+      sustained-seconds: 10
+
+    # Critical threshold
+    critical:
+      threshold: 15.0
+      sustained-seconds: 5
+
+    # Emergency threshold
+    emergency:
+      threshold: 10.0
+      sustained-seconds: 3
+
+  # MSPT alerts
+  # Note: 50ms is exactly 20 TPS, so these are alerting thresholds only. The performance
+  # guard and diagnostics use their own, higher MSPT values and do not read these.
+  mspt:
+    enabled: true
+
+    warning:
+      threshold: 40.0
+      sustained-seconds: 10
+
+    critical:
+      threshold: 50.0
+      sustained-seconds: 5
+
+  # Recovery notifications
+  recovery:
+    enabled: true
+    notify-on-recovery: true
+
+# Fallback / safe mode
+#
+# The FALLBACK state itself lives in the performance-guard section below; this section holds
+# its TPS thresholds and the staged recovery timings. Both live here because these keys
+# predate the guard, and the guard still reads them so an existing config keeps working.
+# Setting performance-guard.states.fallback.tps overrides trigger.tps below.
+fallback:
+  # Turns the whole guard off, fallback and state machine alike. Equivalent to
+  # performance-guard.enabled: false, which takes precedence if you set both.
+  enabled: true
+
+  # Trigger conditions
+  trigger:
+    # TPS threshold to enter fallback mode
+    tps: 10.0
+
+    # Must be sustained for this duration
+    sustained-seconds: 3
+
+  # Recovery conditions. Entering RECOVERING also requires MSPT back under the guard's
+  # warning value, so a server holding 18 TPS with 90ms spikes is not called recovered.
+  recovery:
+    # TPS threshold to exit fallback mode
+    tps: 18.0
+
+    # Must be sustained for this duration
+    sustained-seconds: 10
+
+  # Gradual recovery stage delays (seconds), counted from the moment recovery begins.
+  # Nothing heavy resumes early: monitoring first, then trackers, then modules, deep
+  # analysis last. Recovery is complete when stage 6 finishes.
+  #
+  # There is no separate cooldown-after-recovery setting; stage-6-delay below already is
+  # the wait before full operation resumes, and a second timer on top of it would only be
+  # a number that changed nothing.
+  recovery-stages:
+    stage-2-delay: 5   # Resume health monitoring
+    stage-3-delay: 10  # Resume entity tracking
+    stage-4-delay: 15  # Resume chunk tracking
+    stage-5-delay: 20  # Resume optimization modules
+    stage-6-delay: 30  # Resume deep analysis
+
+# Self-performance monitoring
+self-monitoring:
+  enabled: true
+
+  # Performance budget (milliseconds per execution)
+  # One entry per timed subsystem. optimization-module is the default applied to every
+  # module that does not have its own entry.
+  #
+  # These are EXCLUSIVE costs. health-monitor calls metrics-collection, and the inner
+  # timer's span is subtracted from the outer one, so the two budgets are independent
+  # rather than one containing the other. Before that subtraction existed the same
+  # milliseconds were charged to both names and health-monitor could never come in
+  # under budget however cheap its own work was.
+  #
+  # 5.0 ms is intentionally strict: every collector behind these timers is an O(1)
+  # read (Bukkit.getTPS, Runtime.getRuntime, a counter maintained by event handlers).
+  # None of them scan chunks or entities. If either of these is consistently over 5 ms
+  # on your server, that is worth investigating rather than configuring away - the
+  # usual causes are a GC pause landing inside the timed block or an OS-level stall in
+  # the JVM's CPU-load call, both of which show up as real tick time.
+  budget:
+    health-monitor: 5.0
+    metrics-collection: 5.0
+    deep-analysis: 10.0
+    optimization-module: 5.0
+
+  # Console logging for self-monitoring. OFF by default - see below.
+  #
+  # NOTHING HERE AFFECTS MONITORING. Overruns are always measured, always counted, and an
+  # over-budget module is still suspended after violations-before-suspend cycles whatever
+  # these settings say. This section only controls what is printed to the console.
+  #
+  # It ships off because a subsystem that is persistently over budget would otherwise print
+  # an identical line every monitoring cycle - every 5 seconds at the default health
+  # interval - and the same information is available on demand, for free, from
+  # /serverhealth debug. That command reads the recorded state; it measures nothing new.
+  #
+  # This is NOT the server health alert system. TPS warnings, MSPT warnings, fallback
+  # activation and fallback recovery are configured under 'alerts' and 'performance-guard'
+  # and are completely unaffected by anything in this section.
+  logging:
+    # Master switch for SelfMonitor console output. Turning it on without changing anything
+    # else gives you over-budget warnings, rate-limited per subsystem.
+    #
+    # Developers can turn this on for the current session with
+    #   /servertune debug selfmonitor on
+    # which changes nothing in this file and lasts until the next restart or reload.
+    enabled: false
+
+    # Print a warning when a subsystem exceeds its budget. Only read when 'enabled' is true.
+    over-budget: true
+
+    # Print one line when a subsystem that had been warning returns within budget. Off even
+    # when logging is on: it is only of interest to somebody already watching the warnings.
+    # Exactly one line per over-to-within transition, never repeated.
+    recovery: false
+
+    # Add detail (execution counts, averages, suppression totals) to lines that are already
+    # being printed. Verbose adds FIELDS, not LINES: it never lowers or bypasses a cooldown
+    # and never introduces periodic output. There is no per-tick logging mode.
+    verbose: false
+
+    # Minimum seconds between repeated warnings for the SAME subsystem. Each subsystem has
+    # its own independent timer, so a noisy health-monitor cannot mask a module that starts
+    # misbehaving - the first overrun after a quiet period always prints immediately.
+    # Suppressed overruns are counted and reported on the next warning.
+    #
+    # MINIMUM 10. There is deliberately no "log every cycle" setting:
+    #   0 or negative -> treated as unset, uses the 60s default
+    #   1 to 9        -> raised to 10, with a warning naming the key
+    #   10 or more    -> used as written
+    cooldown-seconds: 60
+
+  # Warn if plugin overhead exceeds budget
+  warn-on-budget-exceeded: true
+
+  # Suspend module if it consistently exceeds budget
+  suspend-on-budget-exceeded: true
+
+  # Number of consecutive budget violations before suspension
+  violations-before-suspend: 3
+
+# Server health commands
+# Access is controlled by the serverhealth.* permissions, not by a config switch.
+server-health:
+  # No cache-duration setting: the snapshot cache holds whatever the last health sample
+  # produced and every command prints that snapshot's real age, so there is no expiry to
+  # configure. Sample more often with performance.intervals.health.
+  #
+  # Live view configuration
+  live:
+    enabled: true
+    # Update interval for live view (ticks)
+    update-interval: 40  # 2 seconds
+    # Maximum live view duration (seconds, 0 = unlimited)
+    max-duration: 300  # 5 minutes
+
+# Optimization modules
+optimization:
+  modules:
+    # Item entity optimization
+    # Gameplay impact: LOW to MEDIUM (depending on settings)
+    # Performance impact: MEDIUM
+    # DEFAULT: ENABLED. Module switches are read as written here and are NOT changed by
+    # performance.profile, which sets the health and deep-analysis intervals only.
+    item:
+      enabled: true
+
+      # Item merging
+      merging:
+        enabled: true
+        radius: 3.0  # Blocks
+
+      # Item lifetime (20 ticks = 1 second)
+      lifetime-ticks: 6000  # 5 minutes (Vanilla default)
+
+      # Per-chunk limits
+      max-per-chunk: 100
+
+      # Global limit (optional)
+      global-limit:
+        enabled: false
+        max: 5000
+
+      # Protected item types (won't be merged/removed)
+      protected-types:
+        - DIAMOND
+        - NETHERITE_INGOT
+        - ELYTRA
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # XP orb optimization
+    # Gameplay impact: LOW
+    # Performance impact: LOW to MEDIUM
+    # DEFAULT: ENABLED
+    xp:
+      enabled: true
+
+      # XP merging
+      merging:
+        enabled: true
+        radius: 3.0  # Blocks
+
+      # Per-chunk limits
+      max-per-chunk: 50
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # Projectile optimization
+    # Gameplay impact: LOW
+    # Performance impact: LOW
+    # DEFAULT: ENABLED
+    projectile:
+      enabled: true
+
+      # Lifetime limits (20 ticks = 1 second)
+      arrow-lifetime-ticks: 1200    # 60 seconds
+      trident-lifetime-ticks: 1200  # 60 seconds
+      other-lifetime-ticks: 600     # 30 seconds
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # Entity/mob optimization
+    # Gameplay impact: HIGH (limits mob spawns)
+    # Performance impact: HIGH
+    # DEFAULT: DISABLED (enable manually if needed)
+    entity:
+      enabled: false
+
+      # Global limits (-1 = disabled)
+      limits:
+        hostile-global: -1
+        passive-global: -1
+        water-global: -1
+        villager-global: -1
+
+      # Per-chunk limits
+      per-chunk:
+        enabled: true
+        hostile: 20
+        passive: 15
+        water: 10
+
+      # Protected entity types (won't be removed)
+      protected-types:
+        - ENDER_DRAGON
+        - WITHER
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # Chunk optimization
+    # Gameplay impact: MEDIUM (may unload inactive chunks)
+    # Performance impact: HIGH (reduces chunk memory usage)
+    # DEFAULT: DISABLED (enable manually after testing)
+    chunk:
+      enabled: false
+
+      # Inactive chunk unloading
+      inactive-unloading:
+        enabled: true
+        timeout-seconds: 300  # 5 minutes
+        max-per-cycle: 10     # Limit to prevent tick spikes
+
+      # Spawn chunk protection
+      protect-spawn-chunks: true
+      spawn-chunk-radius: 10  # Chunks around spawn to protect
+
+      # Protected chunks (format: "world:x:z")
+      protected-chunks: []
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # Mob AI optimization
+    # NOT IMPLEMENTED. No mob AI module ships in 1.0.0, so this switch is inert and setting
+    # it to true does nothing. It is left here, and left false, because it is the key such a
+    # module would use - see "Known limitations" in README.md.
+    mob:
+      enabled: false
+
+    # Hopper and block entity optimization
+    # Gameplay impact: HIGH when throttling or limits are enabled
+    # Performance impact: MEDIUM
+    # DEFAULT: DISABLED
+    #
+    # API LIMITATION - please read before enabling:
+    # This plugin uses the Paper API only (no NMS). Vanilla's 8-tick hopper transfer
+    # interval and the hopper's per-tick container search are server internals. They can
+    # only be changed in spigot.yml (ticks-per.hopper-transfer, ticks-per.hopper-check)
+    # or via NMS - NOT through any Bukkit API. So this module cannot make hoppers tick
+    # less often. What it can do is cancel the transfer/pickup work itself through
+    # cancellable events, which removes the item movement and container churn even though
+    # the block entity still ticks. Real, but partial.
+    hopper:
+      enabled: false
+
+      # Transfer throttling - cancels transfers that happen too soon after the last one.
+      # Vanilla transfers every 8 ticks, so values at or below 8 will rarely cancel
+      # anything. Raise above 8 to actually slow hoppers down.
+      # GAMEPLAY IMPACT: slows item farms and sorting systems.
+      transfer-throttle:
+        enabled: false
+        min-ticks-between-transfers: 8
+
+        # Also throttle hoppers picking up dropped items (often the bigger cost).
+        # GAMEPLAY IMPACT: item collection farms become slower.
+        throttle-item-pickups: false
+
+      # Per-chunk hopper limit, enforced when a hopper is placed.
+      # Never removes existing hoppers - only denies new ones past the cap.
+      # GAMEPLAY IMPACT: players cannot build dense hopper arrays.
+      per-chunk-limit:
+        enabled: false
+        max-hoppers: 64
+
+      # Connected-hopper (network) limit, checked once per placement via a bounded
+      # flood fill over touching hoppers.
+      # GAMEPLAY IMPACT: caps long hopper chains and sorting systems.
+      network-limit:
+        enabled: false
+        max-connected-hoppers: 64
+        # Hard cap on blocks visited per placement check, so one placement next to a
+        # huge existing network cannot become a long scan.
+        scan-cap: 256
+
+      # Hotspot detection - monitoring only, never changes gameplay.
+      hotspot-detection:
+        enabled: true
+        # Flag a chunk holding at least this many hoppers.
+        hoppers-per-chunk: 24
+        # Flag a chunk with at least this many observed transfers per sampling window.
+        transfers-per-window: 500
+        log-to-console: false
+
+      # Inactive hopper reporting.
+      # MONITORING ONLY: an idle hopper fires no events, so the API gives us nothing to
+      # throttle. This reports chunks whose hoppers have moved nothing in this long.
+      inactive-reporting:
+        threshold-seconds: 300
+
+      # Disabled worlds
+      disabled-worlds: []
+
+    # Redstone optimization
+    # Gameplay impact: NONE in vanilla/conservative, HIGH in balanced/aggressive
+    # Performance impact: MEDIUM
+    # DEFAULT: DISABLED
+    #
+    # API LIMITATION - please read:
+    # BlockRedstoneEvent is NOT cancellable in the Paper API (it exposes only
+    # setNewCurrent(int), no setCancelled). There is therefore NO safe way to cap redstone
+    # updates per tick through the API, and 'max-updates-per-tick' is deliberately NOT
+    # provided rather than faked. Doing it properly needs NMS hooks into the
+    # neighbour-update path, which is the hottest code in the tick loop and breaks on every
+    # Paper update - see docs/REDSTONE-API-NOTES.md for the full reasoning.
+    #
+    # What IS real enforcement: piston events and dispenser events ARE cancellable, so
+    # the piston and dispenser limits below genuinely stop work.
+    redstone:
+      enabled: false
+
+      # Mode: vanilla, conservative, balanced, aggressive, custom
+      #   vanilla      - module inactive, no listeners registered, zero overhead
+      #   conservative - monitoring and hotspot detection only, nothing cancelled (DEFAULT)
+      #   balanced     - limits only extreme activity (40 piston moves/chunk/sec)
+      #                  GAMEPLAY: very large piston arrays and rapid dispenser farms
+      #                  may be throttled; normal doors, lamps and small farms are not
+      #   aggressive   - hard limits (10 piston moves/chunk/sec, 2 tick cooldown)
+      #                  GAMEPLAY: WILL BREAK technical farms. Flying machines stall,
+      #                  fast clocks are cut, TNT duplicators and rapid item farms stop
+      #                  working. This is intentional - enable deliberately.
+      #   custom       - every value read from the 'custom' section below
+      mode: conservative
+
+      # Overrides for the selected mode. Anything set here wins over the mode default,
+      # so 'balanced' plus one override is a valid setup - you do not need custom mode.
+      custom:
+        piston:
+          # Real enforcement: piston events are cancellable.
+          # GAMEPLAY IMPACT: cancelling a piston breaks flying machines and fast farms.
+          limit-enabled: false
+          max-per-chunk-per-second: 40
+          # Reported only; does not cancel on its own.
+          max-per-chunk-per-window: 120
+          # Ticks of enforced quiet after a limit trip (CANCEL_AND_COOLDOWN only).
+          cooldown-ticks: 0
+          # monitor | cancel | cancel-and-cooldown
+          action-on-limit: monitor
+
+        dispenser:
+          # Real enforcement: dispense events are cancellable. Covers droppers too.
+          # GAMEPLAY IMPACT: rapid dispenser/dropper farms become slower or stop.
+          limit-enabled: false
+          max-per-chunk-per-second: 30
+          action-on-limit: monitor
+
+        observer:
+          # MONITORING ONLY - observers are never limited. There is no observer event in
+          # the API; activity is inferred from BlockPhysicsEvent#getSourceBlock.
+          # Cancelling block physics would detach torches and desync clients, so the
+          # module never does. OFF by default: BlockPhysicsEvent fires for nearly every block update,
+          # so a handler on it is itself a potential lag source.
+          monitoring-enabled: false
+          # Record 1 in N events. Higher = cheaper and less precise.
+          sample-rate: 8
+
+        # Count redstone signal changes per chunk via BlockRedstoneEvent.
+        # Monitoring only - the event cannot be cancelled.
+        redstone-change-monitoring: true
+
+      # Hotspot detection - monitoring only, never changes gameplay.
+      hotspot-detection:
+        enabled: true
+        # Flag a chunk with at least this much total activity per reporting window.
+        activity-per-window: 600
+        log-to-console: false
+        max-reported: 10
+
+      # Drop tracking for chunks with no redstone activity for this long.
+      idle-threshold-seconds: 300
+
+      # Disabled worlds
+      disabled-worlds: []
+
+# Adaptive performance guard
+#
+# Owns the performance state machine: NORMAL -> WARNING -> CRITICAL -> FALLBACK -> RECOVERING.
+# Both TPS and MSPT are considered. MSPT moves first when a server starts to struggle (TPS is
+# a lagging average), so a bad MSPT escalates the state just like a bad TPS does.
+#
+# READ THIS FIRST - alerts and automatic optimization are separate switches:
+#   actions.alerts: true                   -> you get notified about every state change
+#   actions.automatic-optimization: false  -> the guard changes NOTHING about your server
+# That is the default. The guard reports, and does not act. To let it enable or suspend
+# modules on your behalf, set automatic-optimization to true AND list the modules per state.
+#
+# One exception, and it is deliberate: on entering FALLBACK the guard suspends its OWN work
+# (its optimization modules, its scheduled tasks, its deep analysis) even with automatic
+# optimization off. That is not an optimization, it is the plugin getting out of the way of a
+# server that is already struggling. Commands, health monitoring and recovery detection all
+# keep running.
+performance-guard:
+  enabled: true
+
+  # State thresholds. Each state needs its metric sustained for 'sustained-seconds' before
+  # the state actually changes, so a single bad sample never moves anything.
+  # TPS values fall back to the matching alerts.*/fallback.* keys if omitted here.
+  #
+  # A note on the MSPT numbers, because they look high next to alerts.mspt.*:
+  # 50ms IS one tick, so MSPT 50 is exactly 20 TPS. The alert thresholds (40/50ms) are meant
+  # to fire early and often; using them for state changes would put a healthy server in
+  # CRITICAL permanently. These mirror the TPS ladder instead: 1000/18 = 55.6, 1000/15 = 66.7.
+  states:
+    warning:
+      tps: 18.0
+      mspt: 55.0
+      sustained-seconds: 10
+
+    critical:
+      tps: 15.0
+      mspt: 70.0
+      sustained-seconds: 5
+
+    fallback:
+      tps: 10.0
+      sustained-seconds: 3
+
+    recovery:
+      tps: 18.0
+      sustained-seconds: 10
+
+  # Anti-thrash controls. These are what stop the guard flapping when TPS sits on a
+  # threshold. Raise them if you still see state churn; lower them for faster reaction.
+  stability:
+    # Improving out of a state requires clearing the threshold by this margin.
+    tps-hysteresis: 1.0
+    mspt-hysteresis: 5.0
+    # De-escalating always requires this long, regardless of which state you are leaving.
+    de-escalation-sustained-seconds: 10
+    # No two state changes closer together than this. Escalation into FALLBACK ignores it,
+    # because protecting a dying server must not wait on an anti-flap timer.
+    min-state-seconds: 5
+
+  # Per-state actions.
+  actions:
+    # Notify staff about state changes. Independent of automatic-optimization.
+    alerts: true
+
+    # Allow the guard to enable/suspend modules on your behalf. OFF by default.
+    automatic-optimization: false
+
+    # Permission required to receive in-game notifications.
+    alert-permission: serverhealth.alert
+    log-to-console: true
+
+    # Modules to switch on or off in each state. Only read when automatic-optimization is
+    # true. Names are module names, e.g. item-optimization, xp-optimization,
+    # projectile-optimization, entity-optimization, chunk-optimization, hopper-optimization,
+    # redstone-optimization.
+    normal:
+      notify-staff: false
+      enable-modules: []
+      suspend-modules: []
+
+    warning:
+      notify-staff: true
+      # Lightweight things only. GAMEPLAY IMPACT: whatever the listed modules do.
+      enable-modules: []
+      suspend-modules: []
+
+    critical:
+      notify-staff: true
+      # Only what you explicitly list here runs at CRITICAL. The guard performs no scans of
+      # its own in this state.
+      enable-modules: []
+      suspend-modules: []
+
+    fallback:
+      notify-staff: true
+      enable-modules: []
+      suspend-modules: []
+
+    recovering:
+      notify-staff: true
+      enable-modules: []
+      suspend-modules: []
+
+  # What happens on entering FALLBACK, beyond suspending the optimizer's modules.
+  fallback-actions:
+    # Cancel the optimizer's scheduled module tasks. The health monitor keeps running so
+    # recovery can still be detected.
+    cancel-expensive-tasks: true
+    # Stop deep analysis (hotspot ranking, diagnostics sweeps) until recovery completes.
+    stop-deep-analysis: true
+
+  # Scale the health-monitor interval to the current state. Only the cheap health sample
+  # changes frequency - it reads counters Paper already maintains. Deep analysis and chunk
+  # scanning are never sped up by this, so a bad state cannot create a feedback loop.
+  adaptive-monitoring:
+    enabled: true
+    multipliers:
+      normal: 1.0
+      warning: 0.75     # slightly more often
+      critical: 0.5     # more frequent, still only the cheap sample
+      fallback: 1.5     # back off; just enough to notice recovery
+      recovering: 1.0
+
+# Diagnostics: /serverhealth diagnose and /serverhealth hotspots
+#
+# Commands never scan. One periodic sample runs on the main thread, stores an immutable
+# snapshot, and every command reads that snapshot and prints its age. A diagnose command that
+# swept the world on demand would be exactly the tick spike it exists to help you find.
+diagnostics:
+  enabled: true
+
+  # Analyse the stored snapshot off the main thread. Safe because the analyzer and the
+  # recommendation engine are pure: they hold no Bukkit reference and cannot touch the API.
+  # Only the sampler is main-thread work, and it is not affected by this setting.
+  async: true
+
+  sampling:
+    # How often one sample is taken. Defaults to performance.intervals.deep-analysis.
+    interval-ticks: 1200
+
+    # Upper bound on chunks visited by one per-chunk entity pass. Chunk#getEntities() is
+    # main-thread-only and is the only way to attribute entities to a chunk, so the pass is
+    # bounded and resumes where it stopped; successive cycles still cover everything.
+    chunk-scan-budget: 2000
+
+    # Past this age a report highlights its "Data sampled X seconds ago." line in yellow.
+    # The report is still shown - stale data is labelled, never hidden.
+    stale-after-seconds: 30
+
+  # What counts as worth reporting. Every one of these is a measurement threshold: crossing
+  # one means the number was above the line, not that it caused a tick to run long.
+  thresholds:
+    # TPS and MSPT inherit the performance-guard ladder so a diagnosis and a guard state
+    # never disagree about the same server.
+    tps:
+      warning: 18.0
+      critical: 15.0
+      severe: 10.0
+
+    # Deliberately NOT alerts.mspt.* (40/50). 50 ms is exactly one tick, so judging a
+    # diagnosis against those alerting values would report a perfectly healthy 20 TPS
+    # server as degraded. These inherit performance-guard.states.*.mspt instead.
+    mspt:
+      warning: 55.0
+      critical: 70.0
+
+    cpu:
+      warning: 80.0
+      critical: 95.0
+
+    memory:
+      warning-percent: 75.0
+      critical-percent: 90.0
+
+    chunks:
+      loaded-warning: 3000
+      loaded-critical: 5000
+      load-rate-warning: 50      # chunk loads per second
+      load-rate-critical: 150
+      inactive-warning: 500
+
+    entities:
+      total-warning: 3000
+      total-critical: 8000
+      items-warning: 500
+      items-critical: 2000
+      xp-orbs-warning: 300
+      mobs-warning: 2000
+      villagers-warning: 200
+
+    block-entities:
+      hoppers-warning: 2000
+      total-warning: 8000
+
+  # Per-chunk thresholds for "Potential hotspots". A chunk is listed when a count is above
+  # its line here. That is a correlation with nothing else attached: the plugin counts
+  # objects and events, it does not profile the tick loop, so it cannot and does not claim
+  # a listed chunk is causing lag.
+  hotspots:
+    entities-per-chunk: 50
+    hoppers-per-chunk: 24              # defaults to the hopper module's own hotspot value
+    block-entities-per-chunk: 100
+    hopper-transfers-per-window: 500   # defaults to the hopper module's own value
+    redstone-activity-per-window: 600  # defaults to the redstone module's own value
+
+    # How many hotspots one report lists, worst-scoring first.
+    max-reported: 5
+
+  # On-demand plugin performance diagnostic: /servertune diagnose plugins
+  #
+  # READ THIS FIRST - this is not a monitor and it does not run on its own.
+  #
+  # Nothing in this section causes any work at startup, on reload, when TPS falls, or on any
+  # schedule whatsoever. ServerTune does not profile other plugins in normal operation. The
+  # only thing that starts a measurement is an administrator typing the command, and the only
+  # things that stop it are the window expiring, 'diagnose plugins cancel', the server
+  # entering fallback, or ServerTune being disabled. All four restore every wrapped listener.
+  #
+  # How it measures, and what that costs:
+  #   For the length of the window ServerTune replaces each registration on a fixed set of
+  #   high-frequency event types (physics, redstone, entity ticking and targeting, hopper
+  #   transfers, chunk streaming, player movement) with a subclass that times the original and
+  #   calls it. That is a public Paper API - RegisteredListener is subclassable and its
+  #   callEvent is public - not reflection and not the removed Timings system.
+  #
+  # What it therefore cannot tell you:
+  #   Anything outside those event types is NOT timed. Scheduled task bodies have no timing in
+  #   the public scheduler API at all, so a plugin whose cost is in a repeating task will not
+  #   appear. A plugin missing from a report was not cleared - it was not measured. The report
+  #   says so every time.
+  plugin-scan:
+    enabled: true
+
+    # The window a bare '/servertune diagnose plugins' runs for.
+    default-duration-seconds: 10
+
+    # The longest window this server will allow, including an explicit argument.
+    #
+    # A hard ceiling of 60 is compiled in and this value cannot raise it: writing 86400 here
+    # gets you 60, not a day. Profiling mutates other plugins' registrations while it runs, so
+    # an unbounded session is a correctness risk rather than merely a slow command. Values
+    # below 3 are raised to 3; 0 or negative means "unset" and uses the default of 30.
+    max-duration-seconds: 30
+
+    # How many plugins one report lists, most measured main-thread time first. Capped at 50.
+    top-results: 10
+
+    # Findings below this confidence are not shown. HIGH means the number came from a timer
+    # around that plugin's own handler over a thick sample; MEDIUM is the same timer over a
+    # thin one; LOW is no timing at all - task ownership only, which is not a cost measurement.
+    # Anything unrecognised here falls back to LOW rather than failing startup.
+    minimum-confidence: LOW
+
+    # Seconds between the "Elapsed: 5 / 10 seconds" progress lines. Never per tick.
+    progress-interval-seconds: 5
+
+# Recommendations: /optimizer recommendations
+#
+# Suggestions only. Nothing in this path writes config.yml, enables a module, or schedules a
+# task - the engine has no config handle at all, so it could not apply a change if asked to.
+# Every suggestion names the key to edit and what turning it on will do to gameplay; making
+# the edit and reloading is yours.
+#
+# Runs off-thread under diagnostics.async above, from the same snapshot as a diagnosis.
+recommendations:
+  enabled: true

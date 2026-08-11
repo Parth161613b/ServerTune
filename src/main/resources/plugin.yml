@@ -1,0 +1,77 @@
+name: ServerTune
+version: '${version}'
+main: com.servertune.ServerTunePlugin
+api-version: '26.2'
+author: Parth161613b
+description: Lightweight, configurable Minecraft server performance, monitoring, diagnostics and optimization framework.
+website: https://github.com/Parth161613b
+
+# No `commands:` block. The three commands, their aliases, descriptions and permissions are
+# declared on the Brigadier trees in com.servertune.command.BrigadierCommands instead.
+# Declaring them here as well would register an executor-less PluginCommand per name alongside
+# the Brigadier node. Permissions stay below: they are what the handlers and the tree check,
+# and the wildcard is only meaningful if the nodes are declared.
+
+permissions:
+  serverhealth.use:
+    description: Allow viewing basic server health
+    default: op
+
+  serverhealth.core:
+    description: Allow viewing detailed server metrics
+    default: op
+
+  serverhealth.admin:
+    description: Allow administrative health commands
+    default: op
+
+  serverhealth.alert:
+    description: Receive performance alerts
+    default: op
+
+  serverhealth.diagnose:
+    description: Allow running diagnostics
+    default: op
+
+  optimizer.use:
+    description: Allow basic optimizer commands
+    default: op
+
+  optimizer.admin:
+    description: Allow optimizer administration
+    default: op
+
+  optimizer.reload:
+    description: Allow reloading configuration
+    default: op
+
+  optimizer.diagnose:
+    description: Allow running optimizer diagnostics
+    default: op
+
+  # Deliberately not a child of optimizer.diagnose: every other diagnose subcommand reads a
+  # sample that already exists, while this one temporarily wraps other plugins' event handlers
+  # for the duration of a window. Granting the cheap read should not grant the measurement.
+  optimizer.diagnose.plugins:
+    description: Allow starting an on-demand plugin performance diagnostic
+    default: op
+
+  optimizer.recommendations:
+    description: Allow viewing optimization recommendations (read-only; changes nothing)
+    default: op
+
+  servertune.*:
+    description: Grant all ServerTune permissions
+    default: op
+    children:
+      serverhealth.use: true
+      serverhealth.core: true
+      serverhealth.admin: true
+      serverhealth.alert: true
+      serverhealth.diagnose: true
+      optimizer.use: true
+      optimizer.admin: true
+      optimizer.reload: true
+      optimizer.diagnose: true
+      optimizer.diagnose.plugins: true
+      optimizer.recommendations: true

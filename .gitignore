@@ -1,0 +1,96 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin
+
+### IntelliJ IDEA ###
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### macOS / Windows shell ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Generated jars ###
+# The shadowJar output and any local Paper/plugin jars. The wrapper jar is the one
+# exception - it must be committed for ./gradlew to bootstrap on a clean clone.
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+### Local Minecraft server runtime ###
+# Rooted with a leading slash on purpose: these are only ever test-server leftovers in the
+# project root. Unanchored they would also match any same-named package under src/.
+/run/
+/server/
+/test-server/
+/servers/
+/plugins/
+/logs/
+/crash-reports/
+/world/
+/world_nether/
+/world_the_end/
+/eula.txt
+/server.properties
+/bukkit.yml
+/spigot.yml
+/paper.yml
+/paper-global.yml
+/paper-world-defaults.yml
+/permissions.yml
+/help.yml
+/commands.yml
+/banned-*.json
+/ops.json
+/whitelist.json
+/usercache.json
+/version_history.json
+*.log
+*.log.gz
+
+### JVM crash and profiling dumps ###
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+*.jfr
+
+### Credentials and machine-local settings ###
+.env
+.env.*
+*.local.properties
+local.properties
+rcon.txt
+gradle.properties.local
+
+### Local scratch ###
+*.bak
+*.tmp
+*.orig
+*~
