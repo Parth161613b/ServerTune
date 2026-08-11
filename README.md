@@ -105,12 +105,6 @@ All default to `op`; `servertune.*` grants everything.
 
 - ### **Recommendations**
 
-### Known limitations
-
-- **No `general.enabled`.** A plugin-level "enabled: false" that still loaded the jar, registered the commands and ran the scheduler would be a setting that does nothing, so it is not offered. Stop the plugin the way you stop any other, by removing the jar.
-- **No `mob` module in 1.0.0.** The `optimization.modules.mob.enabled` key exists in `config.yml` but is inert — setting it to `true` does nothing. The key is reserved for a future module.
-- **No `max-updates-per-tick` for redstone.** `BlockRedstoneEvent` is not cancellable, and enforcing a limit properly requires NMS hooks into the neighbour-update path, which is the hottest code in the tick loop and breaks on every Paper update. Piston and dispenser limits *are* enforced through cancellable events. See `docs/REDSTONE-API-NOTES.md`.
-
 ## Links
 
 - **Discord** - <https://discord.gg/UHccj8G67b>
