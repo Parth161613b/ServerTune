@@ -108,6 +108,7 @@ All default to `op`; `servertune.*` grants everything.
 ## Links
 
 - **Discord** - <https://discord.gg/UHccj8G67b>
+- **PaperMC.io** - <https://hangar.papermc.io/Parth161613b/ServerTune>
 
 Bug reports should include your Paper and Java versions, `/optimizer status` output, which modules are enabled, and the full stack trace if there is one. For performance complaints include `/optimizer debug` the fastest way to tell whether the cost is ServerTune's.
 
