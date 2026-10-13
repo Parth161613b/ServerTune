@@ -68,8 +68,8 @@ All default to `op`; `servertune.*` grants everything.
 
 | Platform | Support                                 |
 |---|-----------------------------------------|
-| Paper | **26.2**                                |
-| Java | **25 or newer** (hard requirement)      |
+| Paper | **1.21.x** & **26.2**                                |
+| Java | **25 or newer** (hard requirement) **Java 21 supports only legacy 1.21.x build**     |
 | Spigot / Bukkit | **Not supported.** Uses only Paper APIs |
 
 
