@@ -44,6 +44,9 @@ Three trees. `/serverhealth` (`sh`, `health`) reads, `/optimizer` (`opt`, `optim
 | `/optimizer debug` | Per-subsystem execution timings | `optimizer.admin` |
 | `/optimizer debug selfmonitor [on\|off\|status]` | Toggles SelfMonitor console logging at runtime; does not touch config.yml | `optimizer.admin` |
 | `/optimizer debug selfmonitor verbose [on\|off]` | Verbose SelfMonitor logging; bare form toggles | `optimizer.admin` |
+| `/optimizer discord status` | Discord integration status, transport, dispatcher, queues, alerts | `optimizer.use` |
+| `/optimizer discord test` | Sends a test embed via configured transport | `optimizer.discord.test` |
+| `/optimizer discord reload` | Reloads Discord config and secrets, recreates transport/dispatcher | `optimizer.discord.reload` |
 
 
 ## Permissions
@@ -63,13 +66,14 @@ All default to `op`; `servertune.*` grants everything.
 | `optimizer.diagnose` | op | Reads the periodic sample |
 | `optimizer.diagnose.plugins` | op | **Starts a measurement.** Deliberately separate from `optimizer.diagnose` — every other diagnose subcommand reads a sample that already exists, while this one temporarily wraps other plugins' event handlers. Granting the cheap read should not grant the measurement. |
 | `optimizer.admin` | op | Debug output and SelfMonitor runtime controls |
+| `optimizer.discord.test` | op | Send Discord test messages |
+| `optimizer.discord.reload` | op | Reload Discord configuration |
 
 ## Compatibility
 
 | Platform | Support                                 |
 |---|-----------------------------------------|
-| Paper | **1.21.x** & **26.2**                                |
-| Java | **25 or newer** (hard requirement) **Java 21 supports only legacy 1.21.x build**     |
+| Java | **25 or newer** (hard requirement)      |
 | Spigot / Bukkit | **Not supported.** Uses only Paper APIs |
 
 
@@ -96,6 +100,16 @@ All default to `op`; `servertune.*` grants everything.
 
 **Chunks** — `chunk` unloads chunks inactive past a timeout, bounded per cycle, with spawn chunk and explicit protection lists. Off by default.
 
+## Discord Integration
+
+ServerTune includes a full Discord integration for server notifications and performance alerts.
+
+### Transports
+
+| Transport | Description |
+|---|---|
+| **WEBHOOK** | Uses Discord webhook URL. Simple, no bot account needed. |
+| **BOT** | Uses Discord Bot REST API. Requires bot token and channel ID. Supports richer formatting. |
 
 ## Performance & Safety
 
@@ -108,9 +122,5 @@ All default to `op`; `servertune.*` grants everything.
 ## Links
 
 - **Discord** - <https://discord.gg/UHccj8G67b>
-- **PaperMC.io** - <https://hangar.papermc.io/Parth161613b/ServerTune>
 
 Bug reports should include your Paper and Java versions, `/optimizer status` output, which modules are enabled, and the full stack trace if there is one. For performance complaints include `/optimizer debug` the fastest way to tell whether the cost is ServerTune's.
-
-For Support Contact **Discord** - <https://discord.gg/UHccj8G67b>
-
